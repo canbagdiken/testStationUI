@@ -1,5 +1,3 @@
-
-# import modules that I'm using
 import matplotlib
 matplotlib.use('TKAgg')
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2TkAgg
@@ -8,19 +6,142 @@ import matplotlib.pyplot as pltlib
 import Tkinter
 from Tkinter import *
 import numpy as np
-#import matplotlib.pyplot as pltlib
-# lmfit is imported becuase parameters are allowed to depend on each other along with bounds, etc.
+from serial.tools import list_ports
+import serial
+import time
+waitingTime = 0.1
+connectionTimeOut = 3000
 
 
-
-#Make object for application
 class App_Window(Tkinter.Tk):
     def __init__(self,parent):
         Tkinter.Tk.__init__(self,parent)
         self.parent = parent
         self.initialize()
+
+    def waitResponse(self):
+        cmd = ""
+        x=0
+        while(cmd == ""):
+            if((x*waitingTime)>connectionTimeOut):
+                break
+            x = x+1
+            cmd = self.ser.read(self.ser.inWaiting()).replace("\n","").replace("\r","")
+            time.sleep(waitingTime)
+        return cmd
+    def waitResponseWithCommand(self,command):
+        cmd = ""
+        x=0
+        while(cmd == ""):
+            time.sleep(0.1)
+            self.ser.write(command.encode())
+            time.sleep(0.1)
+            if((x*waitingTime)>connectionTimeOut):
+                break
+            x = x+1
+            cmd = self.ser.read(self.ser.inWaiting()).replace("\n","").replace("\r","")
+            print(cmd)
+            time.sleep(waitingTime)
+        return cmd
+
+    def waitCommand(self,wantedCMD):
+        if(self.waitResponse() != wantedCMD):
+            return False
+        return True
+
+    def waitCommandWithCommand(self,cmd,wantedCMD):
+        if(self.waitResponseWithCommand(cmd) != wantedCMD):
+            return False
+        return True
+
+
+
+    def connect(self):
+        self.connectBtn['state'] = DISABLED
+        self.ser = serial.Serial("/dev/cu.usbmodem1461")
+        print("Connecting...")
+        self.ser.write(b's')
+        ## wait for welcome msg
+        if(self.waitCommand("WELCOME")):
+            print("welcome msg has been get")
+        else:
+            self.connectBtn['state'] = "normal"
+
+        ## check double
+        self.ser.write(b'REURDY')
+
+        if(self.waitCommand("YES")):
+            print("that is ready")
+            self.startBtn['state'] = 'normal'
+            self.disconnectBtn['state'] = "normal"
+            return True
+        else:
+            print("no that is not ready.")
+            self.connectBtn['state'] = "normal"
+            return False
+
+
+
+
+
+
+    def disconnect(self):
+        ## check double
+        self.startBtn['state'] = DISABLED
+        self.connectBtn['state'] = "normal"
+        self.disconnectBtn['state'] = DISABLED
+        print("I get data.")
+        self.ser.close()
+
+
+    def start(self):
+        ## check double
+        self.startBtn['state'] = DISABLED
+        self.ser.write(b'IGNPRCDR')
+        print("IGNITON!!!")
+        time.sleep(0.5);
+        if(self.waitCommandWithCommand("REURDY","YES")):
+            f = open('tmpdata.txt', 'w')
+            time.sleep(0.5)
+            self.ser.write(b'DATAPLS')
+            f.write(self.waitResponse());
+            self.startBtn['state'] = 'normal'
+            f.close()
+            self.loadLastData()
+            return True
+        else:
+            print("no that is not ready.")
+            self.startBtn['state'] = "normal"
+            return False
+
+
+
+
+
+
+        ##DATAPLS
+
+    def quit(self):
+        self.root.destroy()
+        self.root.quit()
     def initialize(self):
-        button = Tkinter.Button(self,text="Open File",command=self.OnButtonClick).pack(side=Tkinter.TOP)
+        self.controls = Frame(height=2, bd=1, relief=SUNKEN)
+        self.controls.pack(fill=Y, padx=5, pady=15, side=LEFT)
+
+        self.connectBtn = Tkinter.Button(self.controls,text="Connect",command=self.connect,width=10)
+        self.connectBtn.pack()
+
+
+        self.disconnectBtn = Tkinter.Button(self.controls,text="Disconnect", state=DISABLED,command=self.disconnect,width=10)
+        self.disconnectBtn.pack()
+
+
+        self.startBtn = Tkinter.Button(self.controls,text="Start",state=DISABLED,command=self.start,width=10)
+        self.startBtn.pack()
+
+
+
+        ##button = Tkinter.Button(self,text="Open File",command=self.OnButtonClick).pack(side=Tkinter.TOP)
         self.canvasFig=pltlib.figure(1)
         Fig = matplotlib.figure.Figure(figsize=(10,5),dpi=100)
         self.FigSubPlot = Fig.add_subplot(1,1,1)
@@ -38,12 +159,11 @@ class App_Window(Tkinter.Tk):
     def refreshFigure(self,x,y):
         self.FigSubPlot.plot(x,y)
         self.canvas.draw()
-    def OnButtonClick(self):
-
+    def loadLastData(self):
         x=[]
         y=[]
 
-        with open("data.txt") as f:
+        with open("tmpdata.txt") as f:
             for line in f:
                 tmp = line.replace("\n","").replace("\r","").split(",")
                 if(len(tmp)<2):
@@ -58,8 +178,10 @@ class App_Window(Tkinter.Tk):
         print(y)
         self.refreshFigure(x,y)
 
+
 if __name__ == "__main__":
     MainWindow = App_Window(None)
+    MainWindow.bind('<Control-c>', quit)
     MainWindow.mainloop()
 
 
